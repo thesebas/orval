@@ -2,7 +2,7 @@ import { Parser, type Program } from 'acorn';
 import { build, type BuildOptions } from 'esbuild';
 import { isArray } from 'remeda';
 
-import type { GeneratorMutatorParsingInfo, Tsconfig } from '../types';
+import type { GeneratorMutatorParsingInfo } from '../types';
 
 export async function getMutatorInfo(
   filePath: string,
@@ -11,7 +11,6 @@ export async function getMutatorInfo(
     namedExport?: string;
     alias?: Record<string, string>;
     external?: string[];
-    tsconfig?: Tsconfig;
   },
 ): Promise<GeneratorMutatorParsingInfo | undefined> {
   const {
@@ -19,16 +18,9 @@ export async function getMutatorInfo(
     namedExport = 'default',
     alias,
     external,
-    tsconfig,
   } = options ?? {};
 
-  const code = await bundleFile(
-    root,
-    filePath,
-    alias,
-    external,
-    tsconfig?.compilerOptions,
-  );
+  const code = await bundleFile(root, filePath, alias, external);
 
   return parseFile(code, namedExport);
 }
@@ -38,7 +30,6 @@ async function bundleFile(
   fileName: string,
   alias?: Record<string, string>,
   external?: string[],
-  compilerOptions?: Tsconfig['compilerOptions'],
 ): Promise<string> {
   const result = await build({
     absWorkingDir: root,
@@ -48,7 +39,7 @@ async function bundleFile(
     bundle: true,
     format: 'esm',
     metafile: false,
-    target: compilerOptions?.target ?? 'es6',
+    target: 'esnext',
     minify: false,
     minifyIdentifiers: false,
     minifySyntax: false,
@@ -58,9 +49,8 @@ async function bundleFile(
     alias,
     external: external ?? ['*'],
   } satisfies BuildOptions);
-  const { text } = result.outputFiles[0];
 
-  return text;
+  return result.outputFiles[0].text;
 }
 
 function parseFile(
@@ -68,11 +58,10 @@ function parseFile(
   name: string,
 ): GeneratorMutatorParsingInfo | undefined {
   try {
-    // `file` is esbuild's bundled output, not the user's source. esbuild may
-    // emit any modern syntax (notably dynamic `import()`, which it preserves
-    // even when targeting es6 in ESM mode), so we parse with the latest
-    // ecmaVersion to avoid spurious SyntaxErrors that would mask the export
-    // we are looking for. See https://github.com/orval-labs/orval/issues/1634.
+    // `file` is bundled output, not the user's source. The bundler may emit
+    // modern syntax, so we parse with the latest ecmaVersion to avoid spurious
+    // SyntaxErrors that would mask the export we are looking for.
+    // See https://github.com/orval-labs/orval/issues/1634.
     const ast = Parser.parse(file, {
       ecmaVersion: 'latest',
       sourceType: 'module',
